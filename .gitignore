@@ -8,3 +8,7 @@
 /Cat_Imgs/
 /Dog_Imgs/
 *.jpg
+*.pb
+*.data
+*.index
+Mdl*
