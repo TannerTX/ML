@@ -108,8 +108,8 @@ class ModelProducer:
     def load_images(self):
         print("→ Copying original images into source directories...")
 
-        cat_src = './PetImages/Cat'
-        dog_src = './PetImages/Dog'
+        cat_src = './Dataset/Cat'
+        dog_src = './Dataset/Dog'
         for file in os.listdir(cat_src):
             sh.copy(os.path.join(cat_src, file), self.src_img_dirs[0])
         for file in os.listdir(dog_src):
