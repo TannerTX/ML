@@ -1,228 +1,205 @@
 import os
-from reformat import Formatter
-from PIL import Image
 import random as rd
 import shutil as sh
 import cv2 as cv
 import numpy as np
 import matplotlib.pyplot as plt
+from PIL import Image
 from tensorflow.keras import datasets, layers, models
 from tensorflow.keras.preprocessing import image
-from keras.preprocessing.image import ImageDataGenerator
-
-class Model_Producer:
-    
-    def __init__(self, IMG_DIMS, IMG_FORMAT, IMG_DIRS, POSTPROCESSED_DIR, OUTPUT_NM, EPOCH):
-        self.IMG_DIMS = IMG_DIMS
-        self.IMG_FORMAT = IMG_FORMAT
-        self.SRC_IMG_DIRS = IMG_DIRS # ** List **
-        self.POSTPROCESSED_DIR = POSTPROCESSED_DIR
-        self.OUTPUT_NM = OUTPUT_NM
-        self.EPOCHS = EPOCH
-    
-    def clean_slate(self):
-        print('*****[Cleaning Up]*****')
-        if os.path.exists('train'):
-            sh.rmtree('train')
-            print("Removed Training Data Directory")
-
-        if os.path.exists('test'):
-            sh.rmtree('test')
-            print("Removed Test Data Directory")
-
-        for DIR in self.SRC_IMG_DIRS:
-
-            contents = os.listdir(DIR)
-
-            if contents:
-                for file in contents:
-                    if os.path.isfile(os.path.join(DIR, file)):
-                        os.remove(os.path.join(DIR, file))
-                    elif os.path.isdir(os.path.join(DIR, file)):
-                        sh.rmtree(file)
-                print(f"Cleaned Image Source")
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from reformat import Formatter
 
 
-        contents = os.listdir(self.POSTPROCESSED_DIR)
+
+
+class ModelProducer:
+    def __init__(self, img_dims, img_format, img_dirs, postprocessed_dir, output_name, epochs):
+        self.img_dims = img_dims
+        self.img_format = img_format
+        self.src_img_dirs = img_dirs
+        self.postprocessed_dir = postprocessed_dir
+        self.output_name = output_name
+        self.epochs = epochs
         
-        if contents:
-            for file in contents:
-                if os.path.isfile(os.path.join(self.POSTPROCESSED_DIR, file)):
-                    os.remove(os.path.join(self.POSTPROCESSED_DIR, file))
-                elif os.path.isdir(os.path.join(self.POSTPROCESSED_DIR, file)):
-                    sh.rmtree(file)
-            print("Removed Postprocessed Data")
-
-
-    def remove_corrupted_imgs(self, primary):
-
-        if primary == True:
-            DIRS = [self.SRC_IMG_DIRS[0], self.SRC_IMG_DIRS[1]]
+        # Prioritize GPU
+        import tensorflow as tf
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                print(f"✅ GPU(s) detected: {[gpu.name for gpu in gpus]}")
+            except RuntimeError as e:
+                print(f"⚠️ GPU setup failed: {e}")
         else:
-            DIRS = ['./train/Dog', './train/Cat', './test/Dog', './test/Cat']
+            raise RuntimeError("❌ No GPU found. TensorFlow will not run on GPU.")
 
 
-        for DIR in DIRS:
-            for filename in os.listdir(DIR):
+    def clean_slate(self):
+        print('→ Cleaning previous data directories...')
+        
+        for folder in ['train', 'test']:
+            if os.path.exists(folder):
+                sh.rmtree(folder)
+                print(f"  - Removed '{folder}' directory")
+
+        for dir_path in self.src_img_dirs:
+            for item in os.listdir(dir_path):
+                path = os.path.join(dir_path, item)
+                if os.path.isfile(path):
+                    os.remove(path)
+                elif os.path.isdir(path):
+                    sh.rmtree(path)
+            print(f"  - Cleaned image source: {dir_path}")
+
+        for item in os.listdir(self.postprocessed_dir):
+            path = os.path.join(self.postprocessed_dir, item)
+            if os.path.isfile(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                sh.rmtree(path)
+        print("  - Cleared postprocessed images")
+
+    def remove_corrupted_imgs(self, primary=True):
+        print(f"→ Checking for corrupted images in {'primary' if primary else 'dataset'} folders...")
+
+        dirs = (
+            [self.src_img_dirs[0], self.src_img_dirs[1]]
+            if primary else
+            ['./train/Dog', './train/Cat', './test/Dog', './test/Cat']
+        )
+
+        for dir_path in dirs:
+            for filename in os.listdir(dir_path):
                 try:
-                    im = Image.open(DIR + "/" + filename)
-                    im.verify()
+                    with Image.open(os.path.join(dir_path, filename)) as im:
+                        im.verify()
                 except:
-                    print(f"{filename} IS CORRUPTED")
-                    os.remove(DIR + '/' + filename)
-    
+                    print(f"  - {filename} is corrupted and will be removed")
+                    os.remove(os.path.join(dir_path, filename))
 
     def gen_datasets(self):
-        TRAIN_PERCENT = 0.8
-        filenames = []
-    
-        for file in os.listdir(self.POSTPROCESSED_DIR):
-            if file.endswith('.jpg'):
-                filenames.append(file)
-    
-        num_train = int(len(filenames) * TRAIN_PERCENT)
-    
+        print("→ Splitting images into train/test sets...")
+
+        train_percent = 0.8
+        filenames = [f for f in os.listdir(self.postprocessed_dir) if f.endswith('.jpg')]
         rd.shuffle(filenames)
-    
+
+        num_train = int(len(filenames) * train_percent)
         train_filenames = filenames[:num_train]
         test_filenames = filenames[num_train:]
-    
-        if not os.path.exists('train'):
-            os.makedirs('train')
-            os.makedirs(os.path.join('train', 'Cat'))
-            os.makedirs(os.path.join('train', 'Dog'))
 
+        for base in ['train', 'test']:
+            for label in ['Cat', 'Dog']:
+                os.makedirs(os.path.join(base, label), exist_ok=True)
 
-        if not os.path.exists('test'):
-            os.makedirs('test')
-            os.makedirs(os.path.join('test', 'Cat'))
-            os.makedirs(os.path.join('test', 'Dog'))
-    
         for file in train_filenames:
-            if file.startswith('cat'):
-                os.rename(os.path.join(self.POSTPROCESSED_DIR, file), os.path.join('train/Cat', file))
-            else:
-                os.rename(os.path.join(self.POSTPROCESSED_DIR, file), os.path.join('train/Dog', file))
-            
-    
+            dest = 'Cat' if file.startswith('cat') else 'Dog'
+            sh.move(os.path.join(self.postprocessed_dir, file), os.path.join('train', dest, file))
+
         for file in test_filenames:
-            if file.startswith('cat'):
-                os.rename(os.path.join(self.POSTPROCESSED_DIR, file), os.path.join('test/Cat', file))
-            else:
-                os.rename(os.path.join(self.POSTPROCESSED_DIR, file), os.path.join('test/Dog', file))
-            
+            dest = 'Cat' if file.startswith('cat') else 'Dog'
+            sh.move(os.path.join(self.postprocessed_dir, file), os.path.join('test', dest, file))
+
+        print(f"  - {len(train_filenames)} training images")
+        print(f"  - {len(test_filenames)} testing images")
 
     def load_images(self):
-        OG_SRC_CAT = './PetImages/Cat'
-        OG_SRC_DOG = './PetImages/Dog'
+        print("→ Copying original images into source directories...")
 
-        for file in os.listdir(OG_SRC_CAT):
-            sh.copy(os.path.join(OG_SRC_CAT, file), self.SRC_IMG_DIRS[0])
+        cat_src = './PetImages/Cat'
+        dog_src = './PetImages/Dog'
+        for file in os.listdir(cat_src):
+            sh.copy(os.path.join(cat_src, file), self.src_img_dirs[0])
+        for file in os.listdir(dog_src):
+            sh.copy(os.path.join(dog_src, file), self.src_img_dirs[1])
 
-        for file in os.listdir(OG_SRC_DOG):
-            sh.copy(os.path.join(OG_SRC_DOG, file), self.SRC_IMG_DIRS[1])
-
+        print("  - Image loading complete")
 
     def process_images(self):
+        print("→ Formatting and resizing images...")
 
-        CAT_DIR = self.SRC_IMG_DIRS[0]
-        DOG_DIR = self.SRC_IMG_DIRS[1]
-        
-        # Handle Cat Imgs
-        formatter = Formatter(self.IMG_DIMS, 'jpg', CAT_DIR)
-        formatter.batch_rename('cat')
-        formatter.resize(CAT_DIR, self.POSTPROCESSED_DIR)
-        # Handle Dog Imgs
-        formatter = Formatter(self.IMG_DIMS, 'jpg', DOG_DIR)
-        formatter.batch_rename('dog')
-        formatter.resize(DOG_DIR, self.POSTPROCESSED_DIR)
+        for label, src_dir in zip(['cat', 'dog'], self.src_img_dirs):
+            formatter = Formatter(self.img_dims, 'jpg', src_dir)
+            formatter.batch_rename(label)
+            formatter.resize(src_dir, self.postprocessed_dir)
+
+        print("  - Image processing complete")
 
     def train_model(self):
-        TRAINING_DIR = './train'
-        TESTING_DIR = './test'
+        print("→ Training model...")
 
-        train_datagen = ImageDataGenerator(rescale = 1/255)
-        test_datagen = ImageDataGenerator(rescale = 1/255)
+        train_dir = './train'
+        test_dir = './test'
 
-        training_imgs = train_datagen.flow_from_directory(TRAINING_DIR, target_size=self.IMG_DIMS, batch_size=32, class_mode='binary')
-        testing_imgs = train_datagen.flow_from_directory(TESTING_DIR, target_size=self.IMG_DIMS, batch_size=32, class_mode='binary')
+        train_gen = ImageDataGenerator(rescale=1 / 255)
+        test_gen = ImageDataGenerator(rescale=1 / 255)
+
+        train_imgs = train_gen.flow_from_directory(train_dir, target_size=self.img_dims, batch_size=32, class_mode='binary')
+        test_imgs = test_gen.flow_from_directory(test_dir, target_size=self.img_dims, batch_size=32, class_mode='binary')
+
+        model = models.Sequential([
+            layers.Conv2D(16, (3, 3), activation='relu', input_shape=(*self.img_dims, 3)),
+            layers.MaxPooling2D((2, 2)),
+            layers.Conv2D(32, (3, 3), activation='relu'),
+            layers.MaxPooling2D((2, 2)),
+            layers.Conv2D(32, (3, 3), activation='relu'),
+            layers.MaxPooling2D((2, 2)),
+            layers.Conv2D(32, (3, 3), activation='relu'),
+            layers.MaxPooling2D((2, 2)),
+            layers.Conv2D(64, (3, 3), activation='relu'),
+            layers.MaxPooling2D((2, 2)),
+            layers.Conv2D(64, (3, 3), activation='relu'),
+            layers.Flatten(),
+            layers.Dense(512, activation='relu'),
+            layers.Dense(1, activation='sigmoid')
+        ])
+
+        model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+        model.fit(train_imgs, epochs=self.epochs, validation_data=test_imgs)
+
+        loss, acc = model.evaluate(test_imgs)
+        print(f"  - Model evaluation → Loss: {loss:.4f}, Accuracy: {acc:.4f}")
+        model.save(self.output_name)
+        print(f"  - Model saved as '{self.output_name}'")
+
+    def predict(self, model_name):
+        print(f"→ Predicting images using model '{model_name}'...")
+
+        model = models.load_model(model_name)
+        pred_dir = './predict_images'
+        image_files = os.listdir(pred_dir)
+
+        fig, axes = plt.subplots(len(image_files), 1, figsize=(15, 15))
+        fig.tight_layout(pad=2.0)
+
+        for idx, file in enumerate(image_files):
+            img_path = os.path.join(pred_dir, file)
+            img = image.load_img(img_path, target_size=self.img_dims)
+            x = image.img_to_array(img)
+            x = np.expand_dims(x, axis=0)
+            result = model.predict(np.vstack([x]))
 
 
-        model = models.Sequential()
-        model.add( layers.Conv2D(16, (3, 3), activation='relu', input_shape=(self.IMG_DIMS[0], self.IMG_DIMS[1], 3)) )
-        model.add( layers.MaxPooling2D((2, 2)) )
-        model.add( layers.Conv2D(32, (3, 3), activation='relu') )
-        model.add( layers.MaxPooling2D((2, 2)) )
-        model.add( layers.Conv2D(32, (3, 3), activation='relu') )
-        model.add( layers.MaxPooling2D((2, 2)) )
-        model.add( layers.Conv2D(32, (3, 3), activation='relu') )
-        model.add( layers.MaxPooling2D((2, 2)) )
-        model.add( layers.Conv2D(64, (3, 3), activation='relu') )
-        model.add( layers.MaxPooling2D((2, 2)) )
-        model.add( layers.Conv2D(64, (3, 3), activation='relu') )
+            im = cv.imread(img_path)
+            resized = cv.resize(im, (250, 250), interpolation=cv.INTER_LINEAR)
+            axes[idx].imshow(cv.cvtColor(resized, cv.COLOR_BGR2RGB))
 
-        model.add( layers.Flatten() )
-        model.add( layers.Dense(512, activation='relu') )
-        model.add( layers.Dense(1, activation='sigmoid') )
-
-        model.compile( optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'] )
-        model.fit( training_imgs, epochs=self.EPOCHS, validation_data=testing_imgs )
-
-        loss, accuracy= model.evaluate(testing_imgs)
-        print(f"Loss: {loss} | Accuracy: {accuracy}")
-
-        model.save(self.OUTPUT_NM)
-
-    def predict(self, model_NM):
-        model = models.load_model(model_NM)
-        num_pics = len(os.listdir('./predict_images'))
-        f, axarr = plt.subplots(num_pics, 1, figsize=(15,15)) 
-        f.tight_layout(pad=2.0)
-
-        for idx, file in enumerate(os.listdir('./predict_images')):
-            img = image.load_img(f'./predict_images/{file}')
-            X = image.img_to_array(img)
-            X = np.expand_dims(X, axis=0)
-            images = np.vstack([X])
-            res = model.predict(images)
-
-            im = cv.imread(f'./predict_images/{file}')
-            im_resized = cv.resize(im, (250, 250), interpolation=cv.INTER_LINEAR)
-
-            axarr[idx].imshow(cv.cvtColor(im_resized, cv.COLOR_BGR2RGB))
-            print(f"IMAGE {idx}: {res}")
-
-            if res == 0:
-                axarr[idx].set_title(f'{idx}: CAT', )
-                # print(f"IMAGE #{idx}: CAT")
-            elif res == 1:
-                axarr[idx].set_title(f'{idx}: DOG')
-                # print(f"IMAGE #{idx}: DOG")
-            else:
-                axarr[idx].set_title(f'{idx}: ERR')
+            label = 'CAT' if result == 0 else 'DOG' if result == 1 else 'ERR'
+            axes[idx].set_title(f'{idx}: {label}')
+            print(f"  - Image {idx}: Prediction → {label}")
 
         plt.show()
 
     def run(self):
-        print('*****[Cleaning Up]*****')
         self.clean_slate()
-
-        print('*****[Piping Images into SRC Directories]*****')
         self.load_images()
-        
-        print("*****[Checking For Corrupted Images]*****")
         self.remove_corrupted_imgs(primary=True)
-
-        print("*****[Processing Images]*****")
         self.process_images()
-
-        print("*****[Generating Datasets]*****")
         self.gen_datasets()
-
-        print("*****[Checking Datasets for Corruption]*****")
         self.remove_corrupted_imgs(primary=False)
-
-        print("*****[TRAINING MODEL]*****")
         self.train_model()
-        
-        print("Finished!")
+        print("→ Pipeline complete.")
+
+

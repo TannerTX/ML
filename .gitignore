@@ -1,3 +1,10 @@
 /fullAuto
 /trained_model_manyLayer
 /__pycache__
+/PetImages/
+/PetImages/Cat
+/PetImages/Dog
+/predict_images/
+/Cat_Imgs/
+/Dog_Imgs/
+*.jpg
