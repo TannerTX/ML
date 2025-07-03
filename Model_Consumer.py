@@ -9,8 +9,8 @@ from tensorflow.keras import datasets, layers, models
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from reformat import Formatter
-
-
+import functools
+import time
 
 
 class ModelProducer:
@@ -36,8 +36,28 @@ class ModelProducer:
             raise RuntimeError("❌ No GPU found. TensorFlow will not run on GPU.")
 
 
+    def log_step(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            name = func.__name__.replace('_', ' ').capitalize()
+            start = time.time()
+            result = func(*args, **kwargs)
+            end = time.time()
+            print(f"✅ Completed: {name} in {end - start:.2f}s")
+            return result
+        return wrapper
+
+    def suppress_errors(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                print(f"❌ Error in {func.__name__}: {e}")
+        return wrapper
+
+    @log_step
     def clean_slate(self):
-        print('→ Cleaning previous data directories...')
         
         for folder in ['train', 'test']:
             if os.path.exists(folder):
@@ -54,15 +74,14 @@ class ModelProducer:
             print(f"  - Cleaned image source: {dir_path}")
 
         for item in os.listdir(self.postprocessed_dir):
-            path = os.path.join(self.postprocessed_dir, item)
             if os.path.isfile(path):
                 os.remove(path)
             elif os.path.isdir(path):
                 sh.rmtree(path)
         print("  - Cleared postprocessed images")
 
+    @log_step
     def remove_corrupted_imgs(self, primary=True):
-        print(f"→ Checking for corrupted images in {'primary' if primary else 'dataset'} folders...")
 
         dirs = (
             [self.src_img_dirs[0], self.src_img_dirs[1]]
@@ -78,9 +97,9 @@ class ModelProducer:
                 except:
                     print(f"  - {filename} is corrupted and will be removed")
                     os.remove(os.path.join(dir_path, filename))
-
+    
+    @log_step
     def gen_datasets(self):
-        print("→ Splitting images into train/test sets...")
 
         train_percent = 0.8
         filenames = [f for f in os.listdir(self.postprocessed_dir) if f.endswith('.jpg')]
@@ -105,8 +124,8 @@ class ModelProducer:
         print(f"  - {len(train_filenames)} training images")
         print(f"  - {len(test_filenames)} testing images")
 
+    @log_step
     def load_images(self):
-        print("→ Copying original images into source directories...")
 
         cat_src = './Dataset/Cat'
         dog_src = './Dataset/Dog'
@@ -115,20 +134,18 @@ class ModelProducer:
         for file in os.listdir(dog_src):
             sh.copy(os.path.join(dog_src, file), self.src_img_dirs[1])
 
-        print("  - Image loading complete")
 
+    @log_step
     def process_images(self):
-        print("→ Formatting and resizing images...")
 
         for label, src_dir in zip(['cat', 'dog'], self.src_img_dirs):
             formatter = Formatter(self.img_dims, 'jpg', src_dir)
             formatter.batch_rename(label)
             formatter.resize(src_dir, self.postprocessed_dir)
 
-        print("  - Image processing complete")
 
+    @log_step
     def train_model(self):
-        print("→ Training model...")
 
         train_dir = './train'
         test_dir = './test'
@@ -160,12 +177,11 @@ class ModelProducer:
         model.fit(train_imgs, epochs=self.epochs, validation_data=test_imgs)
 
         loss, acc = model.evaluate(test_imgs)
-        print(f"  - Model evaluation → Loss: {loss:.4f}, Accuracy: {acc:.4f}")
         model.save(self.output_name)
         print(f"  - Model saved as '{self.output_name}'")
 
+    @log_step
     def predict(self, model_name):
-        print(f"→ Predicting images using model '{model_name}'...")
 
         model = models.load_model(model_name)
         pred_dir = './predict_images'
@@ -188,10 +204,10 @@ class ModelProducer:
 
             label = 'CAT' if result == 0 else 'DOG' if result == 1 else 'ERR'
             axes[idx].set_title(f'{idx}: {label}')
-            print(f"  - Image {idx}: Prediction → {label}")
 
         plt.show()
 
+    @log_step
     def run(self):
         self.clean_slate()
         self.load_images()
@@ -200,6 +216,5 @@ class ModelProducer:
         self.gen_datasets()
         self.remove_corrupted_imgs(primary=False)
         self.train_model()
-        print("→ Pipeline complete.")
 
 

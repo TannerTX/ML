@@ -13,7 +13,7 @@ class Formatter:
                 img = Image.open(os.path.join(src_dir, filename))
                 img = img.resize((self.IMG_SIZE[0], self.IMG_SIZE[1]), Image.Resampling.LANCZOS)
                 img.save(os.path.join(dest_dir, filename))
-                if idx % 100 == 0:
+                if idx % 1000 == 0:
                     print(f"[Resize] Processed {idx} images...")
                 os.remove(os.path.join(src_dir, filename))
             except Exception as e:
@@ -25,7 +25,7 @@ class Formatter:
             try:
                 new_name = f"{newLabel}_{idx}.{self.IMG_FORMAT}"
                 os.rename(os.path.join(self.IMG_DIR, filename), os.path.join(self.IMG_DIR, new_name))
-                if idx % 100 == 0:
+                if idx % 1000 == 0:
                     print(f"[Rename] Renamed {idx} images...")
             except Exception as e:
                 print(f"[Rename] ERROR with {filename}: {e}")
@@ -37,7 +37,7 @@ class Formatter:
                 label, _ = os.path.splitext(filename)
                 new_filename = f"{label}.{self.IMG_FORMAT}"
                 os.rename(os.path.join(self.IMG_DIR, filename), os.path.join(self.IMG_DIR, new_filename))
-                if idx % 100 == 0:
+                if idx % 1000 == 0:
                     print(f"[ExtChange] Updated {idx} extensions...")
             except Exception as e:
                 print(f"[ExtChange] ERROR with {filename}: {e}")
